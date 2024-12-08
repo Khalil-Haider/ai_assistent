@@ -1,0 +1,13 @@
+streamlit
+torch
+torchaudio
+transformers
+pymupdf4llm
+langchain
+langchain-google-genai
+faiss-cpu
+pillow
+uuid
+google-generativeai
+huggingface_hub
+rank_bm25
