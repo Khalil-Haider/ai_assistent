@@ -1,4 +1,5 @@
 streamlit
+-U langchain-community
 torch
 torchaudio
 transformers
