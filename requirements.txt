@@ -16,3 +16,4 @@ sentence_transformers
 accelerate
 qwen_vl_utils
 torchvision
+pytorch
