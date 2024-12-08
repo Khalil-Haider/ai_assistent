@@ -4,9 +4,9 @@ import uuid
 from typing import Optional
 
 # Import the custom classes
-from src.audio_video_transcriber import AudioTranscriber
-from src.pdf_conversational_rag_chatbot import PDFChatbot
-from src.qwen_vl_description_generator import QwenVLDescriptionGenerator
+from audio_video_transcriber import AudioTranscriber
+from pdf_conversational_rag_chatbot import PDFChatbot
+from qwen_vl_description_generator import QwenVLDescriptionGenerator
 
 class MultimodalAIAssistant:
     def __init__(self):
