@@ -15,3 +15,4 @@ rank_bm25
 sentence_transformers
 accelerate
 qwen_vl_utils
+torchvision
