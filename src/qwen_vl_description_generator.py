@@ -9,7 +9,7 @@ class QwenVLDescriptionGenerator:
                  model_name: str = "Qwen/Qwen2-VL-2B-Instruct", 
                  min_pixels: int = 256 * 28 * 28, 
                  max_pixels: int = 720 * 28 * 28,
-                 device: str = "auto"):
+                 device: str = "auto"): 
         """
         Initialize the Qwen-VL Description Generator.
         
