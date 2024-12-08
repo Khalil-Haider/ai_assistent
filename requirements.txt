@@ -12,3 +12,4 @@ uuid
 google-generativeai
 huggingface_hub
 rank_bm25
+sentence_transformers
