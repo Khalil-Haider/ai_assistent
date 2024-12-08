@@ -1,5 +1,6 @@
 import os
 import uuid
+import json
 import pymupdf4llm
 from typing import List, Dict, Optional, Any
 
@@ -21,12 +22,13 @@ from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 class PDFChatbot:
     """
     A comprehensive PDF Chatbot using Retrieval-Augmented Generation (RAG)
+    with advanced history management capabilities
     
     Supports:
     - PDF text extraction
     - Semantic search
     - Contextual question answering
-    - Conversation history management
+    - Advanced conversation history management
     """
     
     def __init__(
@@ -36,10 +38,11 @@ class PDFChatbot:
         embedding_model: str = "BAAI/bge-m3",
         chunk_size: int = 600, 
         chunk_overlap: int = 90,
-        temperature: float = 0.0
+        temperature: float = 0.0,
+        history_dir: Optional[str] = None
     ):
         """
-        Initialize the PDF Chatbot
+        Initialize the PDF Chatbot with enhanced history management
         
         Parameters:
         -----------
@@ -55,8 +58,14 @@ class PDFChatbot:
             Overlap between text chunks (default: 90)
         temperature : float, optional
             LLM temperature setting (default: 0.0)
+        history_dir : str, optional
+            Directory to store conversation histories (default: None)
         """
-        # Set environment variable for Google API
+        # Set up history management
+        self.history_dir = history_dir or os.path.join(os.getcwd(), 'chat_histories')
+        os.makedirs(self.history_dir, exist_ok=True)
+        
+        # Rest of the initialization remains the same as in the previous implementation
         os.environ["GOOGLE_API_KEY"] = google_api_key
         
         # Convert PDF to markdown
@@ -90,18 +99,16 @@ class PDFChatbot:
             max_retries=2,
         )
         
-        # Retrievers
+        # Retrievers setup (same as previous implementation)
         bm25_retriever = BM25Retriever.from_documents(texts)
         bm25_retriever.k = 9
         faiss_retriever = self.vectorstore.as_retriever()
         
-        # Ensemble Retriever
         ensemble_retriever = EnsembleRetriever(
             retrievers=[bm25_retriever, faiss_retriever],
             weights=[0.5, 0.5]
         )
         
-        # Reranker
         reranker_model = HuggingFaceCrossEncoder(model_name="BAAI/bge-reranker-large")
         compressor = CrossEncoderReranker(model=reranker_model, top_n=3)
         compression_retriever = ContextualCompressionRetriever(
@@ -109,7 +116,7 @@ class PDFChatbot:
             base_retriever=ensemble_retriever
         )
         
-        # Contextualize question prompt
+        # Prompts and chains setup (same as previous implementation)
         contextualize_q_system_prompt = (
             "Given a chat history and the latest user question "
             "which might reference context in the chat history, "
@@ -123,12 +130,10 @@ class PDFChatbot:
             ("human", "{input}"),
         ])
         
-        # History-aware retriever
         history_aware_retriever = create_history_aware_retriever(
             self.llm, compression_retriever, contextualize_q_prompt
         )
         
-        # QA system prompt
         system_prompt = (
             "You are an assistant for question-answering tasks. "
             "Use the following pieces of retrieved context to answer "
@@ -139,26 +144,46 @@ class PDFChatbot:
             "{context}"
         )
         
-        # QA prompt
         qa_prompt = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
             MessagesPlaceholder(variable_name="chat_history"),
             ("human", "{input}"),
         ])
         
-        # Chains
         question_answer_chain = create_stuff_documents_chain(self.llm, qa_prompt)
         rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
         
-        # Chat history management
+        # Enhanced history management
         self.store: Dict[str, ChatMessageHistory] = {}
         
         def get_session_history(session_id: str) -> ChatMessageHistory:
+            """
+            Retrieve or create a session history with persistent storage
+            """
             if session_id not in self.store:
-                self.store[session_id] = ChatMessageHistory()
+                # Try to load existing history from file
+                history_file = os.path.join(self.history_dir, f"{session_id}_history.json")
+                
+                if os.path.exists(history_file):
+                    # Load existing history
+                    with open(history_file, 'r') as f:
+                        loaded_history = json.load(f)
+                    
+                    session_history = ChatMessageHistory()
+                    for msg in loaded_history:
+                        if msg['type'] == 'human':
+                            session_history.add_user_message(msg['content'])
+                        elif msg['type'] == 'ai':
+                            session_history.add_ai_message(msg['content'])
+                else:
+                    # Create new history
+                    session_history = ChatMessageHistory()
+                
+                self.store[session_id] = session_history
+            
             return self.store[session_id]
         
-        # Final conversational RAG chain
+        # Conversational RAG chain
         self.conversational_rag_chain = RunnableWithMessageHistory(
             rag_chain,
             get_session_history,
@@ -176,7 +201,7 @@ class PDFChatbot:
         session_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Send a query to the chatbot and get a response
+        Send a query to the chatbot and get a response with history management
         
         Parameters:
         -----------
@@ -198,7 +223,35 @@ class PDFChatbot:
             config={"configurable": {"session_id": current_session_id}},
         )
         
+        # Persist conversation history
+        self._save_history(current_session_id)
+        
         return result
+    
+    def _save_history(self, session_id: str) -> None:
+        """
+        Save conversation history to a JSON file
+        
+        Parameters:
+        -----------
+        session_id : str
+            Session ID to save history for
+        """
+        if session_id in self.store:
+            history = self.store[session_id]
+            history_file = os.path.join(self.history_dir, f"{session_id}_history.json")
+            
+            # Convert messages to a serializable format
+            serializable_history = []
+            for msg in history.messages:
+                serializable_history.append({
+                    'type': 'human' if msg.type == 'human' else 'ai',
+                    'content': msg.content
+                })
+            
+            # Write to file
+            with open(history_file, 'w') as f:
+                json.dump(serializable_history, f, indent=2)
     
     def clear_history(self, session_id: Optional[str] = None) -> None:
         """
@@ -212,8 +265,14 @@ class PDFChatbot:
         current_session_id = session_id or self.default_session_id
         
         if current_session_id in self.store:
+            # Reset in-memory history
             self.store[current_session_id] = ChatMessageHistory()
-        
+            
+            # Remove history file
+            history_file = os.path.join(self.history_dir, f"{current_session_id}_history.json")
+            if os.path.exists(history_file):
+                os.remove(history_file)
+    
     def list_sessions(self) -> List[str]:
         """
         List all active session IDs
@@ -222,5 +281,5 @@ class PDFChatbot:
         --------
         List of session IDs
         """
-        return list(self.store.keys())
-    
+        return [f.replace('_history.json', '') for f in os.listdir(self.history_dir) if f.endswith('_history.json')]
+
