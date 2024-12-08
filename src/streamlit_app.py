@@ -17,6 +17,14 @@ class MultimodalAIAssistant:
         if 'session_id' not in st.session_state:
             st.session_state.session_id = str(uuid.uuid4())
         
+        # Initialize session state for chat messages
+        if 'pdf_chat_messages' not in st.session_state:
+            st.session_state.pdf_chat_messages = []
+        
+        # Initialize session state for current PDF path
+        if 'current_pdf_path' not in st.session_state:
+            st.session_state.current_pdf_path = None
+        
         # Initialize models as None, will be loaded when needed
         self.audio_transcriber = None
         self.pdf_chatbot = None
@@ -50,6 +58,11 @@ class MultimodalAIAssistant:
             return None
 
         try:
+            # Clear previous chat messages if PDF changed
+            if st.session_state.current_pdf_path != pdf_path:
+                st.session_state.pdf_chat_messages = []
+                st.session_state.current_pdf_path = pdf_path
+
             self.pdf_chatbot = PDFChatbot(
                 pdf_path=pdf_path, 
                 google_api_key=st.session_state.google_api_key
@@ -91,7 +104,51 @@ class MultimodalAIAssistant:
         if st.sidebar.button("Clear Conversation History"):
             if self.pdf_chatbot:
                 self.pdf_chatbot.clear_history(st.session_state.session_id)
+            st.session_state.pdf_chat_messages = []
             st.success("Conversation history cleared!")
+
+    def render_pdf_chat_interface(self, file_path):
+        """
+        Render an interactive chat interface for PDF question answering
+        
+        Args:
+            file_path (str): Path to the PDF file
+        """
+        # Load PDF Chatbot
+        self.pdf_chatbot = self.load_pdf_chatbot(file_path)
+        
+        if not self.pdf_chatbot:
+            return
+
+        # Display previous chat messages
+        for message in st.session_state.pdf_chat_messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        # Chat input
+        if prompt := st.chat_input("Ask a question about the PDF"):
+            # Add user message to chat history
+            st.session_state.pdf_chat_messages.append({
+                "role": "user", 
+                "content": prompt
+            })
+
+            # Display user message
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            # Generate response
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    result = self.pdf_chatbot.chat(prompt, st.session_state.session_id)
+                    response = result['answer']
+                    st.markdown(response)
+
+            # Add assistant response to chat history
+            st.session_state.pdf_chat_messages.append({
+                "role": "assistant", 
+                "content": response
+            })
 
     def main_ui(self):
         """
@@ -118,6 +175,7 @@ class MultimodalAIAssistant:
         
         if uploaded_file is not None:
             # Save the uploaded file temporarily
+            os.makedirs("temp", exist_ok=True)
             with open(os.path.join("temp", uploaded_file.name), "wb") as f:
                 f.write(uploaded_file.getvalue())
             file_path = os.path.join("temp", uploaded_file.name)
@@ -136,12 +194,7 @@ class MultimodalAIAssistant:
             
             # Process based on mode
             if processing_mode == "Question Answering" and file_extension == '.pdf':
-                self.load_pdf_chatbot(file_path)
-                if self.pdf_chatbot:
-                    query = st.text_input("Ask a question about the PDF")
-                    if query:
-                        result = self.pdf_chatbot.chat(query, st.session_state.session_id)
-                        st.write(result['answer'])
+                self.render_pdf_chat_interface(file_path)
             
             elif processing_mode == "Transcription" and file_extension in ['.mp3', '.wav', '.mp4', '.avi']:
                 self.load_audio_transcriber()
@@ -161,9 +214,6 @@ class MultimodalAIAssistant:
         """
         Run the Streamlit application
         """
-        # Ensure temp directory exists
-        os.makedirs("temp", exist_ok=True)
-        
         # Render sidebar and main UI
         self.render_sidebar()
         self.main_ui()
