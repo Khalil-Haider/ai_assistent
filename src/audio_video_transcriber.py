@@ -14,7 +14,7 @@ import soundfile as sf
 
 @dataclass
 class AudioTranscriber:
-    model_id: str = "models\distil-whisper-large-v3"
+    model_id: str = "distil-whisper/distil-large-v3"
     device: str = "cuda:0" if torch.cuda.is_available() else "cpu"
     torch_dtype: torch.dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
