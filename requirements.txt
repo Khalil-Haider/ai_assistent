@@ -17,3 +17,5 @@ accelerate
 qwen_vl_utils
 torchvision
 ffmpeg
+moviepy
+soundfile
